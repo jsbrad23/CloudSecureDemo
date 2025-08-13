@@ -1,0 +1,6 @@
+@CloudSecureDemo_HostAddress = http://localhost:5145
+
+GET {{CloudSecureDemo_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
