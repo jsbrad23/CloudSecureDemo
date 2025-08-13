@@ -7,11 +7,11 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<!-- Necesarios para tu Program.cs -->
+		<!-- Autenticación JWT para ASP.NET Core -->
 		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.8" />
-		<PackageReference Include="Microsoft.AspNetCore.RateLimiting" Version="8.0.8" />
-		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.6.4" />
-		<!-- Swagger (si no lo tienes ya) -->
+		<!-- Librería de tokens JWT -->
+		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.7.0" />
+		<!-- Swagger / OpenAPI -->
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
 	</ItemGroup>
 
