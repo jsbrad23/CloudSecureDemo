@@ -1,14 +1,15 @@
-using System.IdentityModel.Tokens.Jwt;
+ï»¿using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// =================== CONFIGURACIÓN JWT (appsettings o variables de entorno) ===================
+// =================== CONFIGURACIÃ“N JWT (appsettings o variables de entorno) ===================
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtKey = Environment.GetEnvironmentVariable("JWT__Key") ?? jwtSection["Key"]!;
 var jwtIssuer = Environment.GetEnvironmentVariable("JWT__Issuer") ?? jwtSection["Issuer"]!;
@@ -16,13 +17,14 @@ var jwtAudience = Environment.GetEnvironmentVariable("JWT__Audience") ?? jwtSect
 var jwtExpires = int.TryParse(Environment.GetEnvironmentVariable("JWT__ExpiresMinutes"), out var expMin)
                   ? expMin : int.Parse(jwtSection["ExpiresMinutes"] ?? "60");
 
-// =================== CORS (ajusta si usas frontend) ===================
+// =================== CORS (ajusta con tu frontend si lo usas) ===================
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()
 ));
 
-// =================== AUTENTICACIÓN JWT ===================
+// =================== AUTENTICACIÃ“N JWT ===================
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -40,40 +42,71 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// =================== RATE LIMITING (para demostrar protección de abuso) ===================
+// =================== RATE LIMITING (para demostrar protecciÃ³n de abuso) ===================
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
     options.AddFixedWindowLimiter("fixed", opt =>
     {
-        opt.PermitLimit = 30;                 // 30 req/min
+        opt.PermitLimit = 30; // 30 req/min
         opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueLimit = 0;                   // sin cola
+        opt.QueueLimit = 0;
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
 });
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+// =================== SWAGGER + ESQUEMA DE SEGURIDAD (BotÃ³n Authorize) ===================
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "CloudSecureDemo", Version = "v1" });
+
+    // Definir esquema Bearer para JWT
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Introduce **Bearer** + espacio + tu token JWT.\n\nEjemplo: `Bearer eyJhbGciOi...`"
+    });
+
+    // Requerir el esquema en las operaciones
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id   = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 var app = builder.Build();
 
-// =================== SWAGGER ===================
+// =================== MIDDLEWARES ===================
 app.UseSwagger();
 app.UseSwaggerUI();
 
-// =================== HTTPS (Render/Azure ya fuerzan HTTPS, igual lo dejamos) ===================
 app.UseHttpsRedirection();
 
-// =================== HTTP SECURITY HEADERS (mejora puntaje en escáneres) ===================
+// HTTP Security Headers (mejora puntaje en escÃ¡neres)
 app.Use(async (ctx, next) =>
 {
     ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
     ctx.Response.Headers["X-Frame-Options"] = "DENY";
     ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
-    ctx.Response.Headers["Permissions-Policy"] = "geolocation=()"; // Ejemplo; ajusta según tu app
-    // CSP mínima; si luego sirves frontend, ajústala
+    ctx.Response.Headers["Permissions-Policy"] = "geolocation=()";
+    // CSP mÃ­nima; si luego sirves frontend, ajÃºstala
     ctx.Response.Headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none';";
     await next();
 });
@@ -83,21 +116,22 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// =================== ENDPOINT RAÍZ (redirige a swagger) ===================
+// =================== ENDPOINTS ===================
+
+// RaÃ­z â†’ redirige a Swagger
 app.MapGet("/", () => Results.Redirect("/swagger"));
 
-// =================== ENDPOINT PÚBLICO ===================
+// PÃºblico
 app.MapGet("/public", () => Results.Ok(new
 {
-    message = "Endpoint público OK",
+    message = "Endpoint pÃºblico OK",
     time = DateTime.UtcNow
 }))
 .RequireRateLimiting("fixed");
 
-// =================== LOGIN (demo): devuelve JWT si user/clave son correctos ===================
+// Login (demo: usuario/clave fijos)
 app.MapPost("/login", (LoginDto dto) =>
 {
-    // DEMO: usuario/clave fijos. Cambia por tu validación real si deseas.
     if (dto.Username != "demo" || dto.Password != "Password123!")
         return Results.Unauthorized();
 
@@ -109,6 +143,7 @@ app.MapPost("/login", (LoginDto dto) =>
     };
 
     var creds = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+
     var token = new JwtSecurityToken(
         issuer: jwtIssuer,
         audience: jwtAudience,
@@ -118,6 +153,7 @@ app.MapPost("/login", (LoginDto dto) =>
     );
 
     var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
     return Results.Ok(new
     {
         access_token = tokenString,
@@ -126,12 +162,13 @@ app.MapPost("/login", (LoginDto dto) =>
     });
 });
 
-// =================== ENDPOINT PRIVADO (requiere JWT) ===================
+// Privado (requiere JWT)
 app.MapGet("/private", (ClaimsPrincipal user) =>
 {
     var name = user.Identity?.Name
                ?? user.FindFirstValue(ClaimTypes.NameIdentifier)
                ?? "anon";
+
     return Results.Ok(new
     {
         message = $"Hola {name}, accediste al endpoint privado.",
@@ -142,5 +179,5 @@ app.MapGet("/private", (ClaimsPrincipal user) =>
 
 app.Run();
 
-// =================== DTOs ===================
+// DTOs
 record LoginDto(string Username, string Password);
